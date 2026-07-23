@@ -57,20 +57,26 @@ app.use(
   ),
 );
 
-// CORS configuration supporting localhost 3000 and 3001
+// CORS configuration supporting localhost 3000, 3001 and deployed Vercel client
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:5000",
+  "https://fluxo-web-woad.vercel.app",
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
+      // Always allow requests from allowedOrigins, or any origin in non-production
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        process.env.NODE_ENV !== "production"
+      ) {
         callback(null, true);
       } else {
-      callback(null, process.env.CLIENT_URL);
+        callback(null, process.env.CLIENT_URL);
       }
     },
     credentials: true,
