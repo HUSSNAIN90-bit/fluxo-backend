@@ -27,23 +27,17 @@ const auth = EMAIL_PASS
       refreshToken: REFRESH_TOKEN,
     };
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth,
-});
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
 
-transporter.verify((err, succ) => {
-  if (err) {
-    console.error("Error connecting to email server:", err);
-    if (err.code === "EAUTH" && err.response?.includes("invalid_grant")) {
-      console.error(
-        "Gmail OAuth2 invalid_grant: refresh token may be expired, revoked, or invalid."
-      );
-    }
-  } else {
-    console.log("Email server is ready to send messages");
-  }
-});
 
 const sendEmail = async ({ to, subject, text, html }) => {
   try {
