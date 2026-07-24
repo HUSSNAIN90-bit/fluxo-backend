@@ -5,30 +5,34 @@ const {
   EMAIL_PASS,
 } = process.env;
 
-// Simple mandatory check for credentials
+// Ensure required environment variables are set
 if (!EMAIL_USER || !EMAIL_PASS) {
   throw new Error(
     "Missing EMAIL_USER or EMAIL_PASS in environment variables. Please configure your email credentials."
   );
 }
 
-// Create transporter for SMTP with Gmail using user & app password
+// Configure Nodemailer transporter for Gmail SMTP (works with Render free tier)
 const transporter = nodemailer.createTransport({
+  service: "gmail",
   host: "smtp.gmail.com",
   port: 587,
-  secure: false,
-  requireTLS: true,
+  secure: false, // true for port 465, false for other ports (587)
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: EMAIL_USER,
+    pass: EMAIL_PASS,
+  },
+  tls: {
+    rejectUnauthorized: false, // Accept self-signed certificates (safer for free hosts, but consider more security for production)
   },
 });
-// Verify connection configuration and log result
+
+// Verify connection configuration on startup
 transporter.verify((error, success) => {
   if (error) {
     console.error("Email server connection failed:", error);
   } else {
-    console.log("Email server is ready to send messages");
+    console.log("Email server is ready to send messages via smtp.gmail.com");
   }
 });
 
@@ -50,9 +54,12 @@ const sendEmail = async ({ to, subject, text, html }) => {
       html,
     });
     console.log("Message sent: %s", info.messageId);
-    // Only print the Preview URL in non-production (for development/testing)
+    // Preview URL won't work with Gmail SMTP, but leaving here for API shape
     if (process.env.NODE_ENV !== "production") {
-      console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
+      const preview = nodemailer.getTestMessageUrl(info);
+      if (preview) {
+        console.log("Preview URL: %s", preview);
+      }
     }
     return info;
   } catch (err) {
