@@ -1,67 +1,45 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const {
-  EMAIL_USER,
-  EMAIL_PASS,
-  CLIENT_ID,
-  CLIENT_SECRET,
-  REFRESH_TOKEN,
-} = process.env;
+const { RESEND_API_KEY } = process.env;
 
-if (!EMAIL_USER || (!EMAIL_PASS && (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN))) {
+if (!RESEND_API_KEY) {
   throw new Error(
-    "Missing email auth config. Set EMAIL_USER plus either EMAIL_PASS or CLIENT_ID, CLIENT_SECRET, and REFRESH_TOKEN."
+    "Missing RESEND_API_KEY in environment variables. Please configure your Resend API key.",
   );
 }
 
-const auth = EMAIL_PASS
-  ? {
-      user: EMAIL_USER,
-      pass: EMAIL_PASS,
-    }
-  : {
-      type: "OAuth2",
-      user: EMAIL_USER,
-      clientId: CLIENT_ID,
-      clientSecret: CLIENT_SECRET,
-      refreshToken: REFRESH_TOKEN,
-    };
+const resend = new Resend(RESEND_API_KEY);
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth,
-});
-
-transporter.verify((err, succ) => {
-  if (err) {
-    console.error("Error connecting to email server:", err);
-    if (err.code === "EAUTH" && err.response?.includes("invalid_grant")) {
-      console.error(
-        "Gmail OAuth2 invalid_grant: refresh token may be expired, revoked, or invalid."
-      );
-    }
-  } else {
-    console.log("Email server is ready to send messages");
-  }
-});
-
+/**
+ * Sends an email using Resend API.
+ * @param {Object} param0
+ * @param {string|string[]} param0.to - Recipient(s)
+ * @param {string} param0.subject - Subject
+ * @param {string} [param0.text] - Plain text content
+ * @param {string} [param0.html] - HTML content
+ */
 const sendEmail = async ({ to, subject, text, html }) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Backend Ledger" <${EMAIL_USER}>`,
-      to,
+    // Resend expects array or comma-separated string for recipients
+    const recipients = Array.isArray(to) ? to : [to];
+    const { data, error } = await resend.emails.send({
+      from: "Fluxo <onboarding@resend.dev>",
+      to: recipients,
       subject,
       text,
       html,
     });
-    console.log("Message sent: %s", info.messageId);
-    console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    console.log("Email sent:", data.id);
+    return data;
   } catch (err) {
-    throw new Error(
-      `Error sending email: ${err.message}. Check Gmail credentials, OAuth2 refresh token, or app password.`
-    );
+    console.error("FULL EMAIL ERROR:", err);
+    throw err;
   }
 };
 
 export { sendEmail };
-
