@@ -1,43 +1,17 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const {
-  EMAIL_USER,
-  EMAIL_PASS,
-} = process.env;
+const { RESEND_API_KEY } = process.env;
 
-// Ensure required environment variables are set
-if (!EMAIL_USER || !EMAIL_PASS) {
+if (!RESEND_API_KEY) {
   throw new Error(
-    "Missing EMAIL_USER or EMAIL_PASS in environment variables. Please configure your email credentials."
+    "Missing RESEND_API_KEY in environment variables. Please configure your Resend API key.",
   );
 }
 
-// Configure Nodemailer transporter for Gmail SMTP (works with Render free tier)
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // true for port 465, false for other ports (587)
-  auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false, // Accept self-signed certificates (safer for free hosts, but consider more security for production)
-  },
-});
-
-// Verify connection configuration on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("Email server connection failed:", error);
-  } else {
-    console.log("Email server is ready to send messages via smtp.gmail.com");
-  }
-});
+const resend = new Resend(RESEND_API_KEY);
 
 /**
- * Sends an email using nodemailer SMTP transport.
+ * Sends an email using Resend API.
  * @param {Object} param0
  * @param {string|string[]} param0.to - Recipient(s)
  * @param {string} param0.subject - Subject
@@ -46,22 +20,22 @@ transporter.verify((error, success) => {
  */
 const sendEmail = async ({ to, subject, text, html }) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Backend Ledger" <${EMAIL_USER}>`,
-      to,
+    // Resend expects array or comma-separated string for recipients
+    const recipients = Array.isArray(to) ? to : [to];
+    const { data, error } = await resend.emails.send({
+      from: "Fluxo <onboarding@resend.dev>",
+      to: recipients,
       subject,
       text,
       html,
     });
-    console.log("Message sent: %s", info.messageId);
-    // Preview URL won't work with Gmail SMTP, but leaving here for API shape
-    if (process.env.NODE_ENV !== "production") {
-      const preview = nodemailer.getTestMessageUrl(info);
-      if (preview) {
-        console.log("Preview URL: %s", preview);
-      }
+
+    if (error) {
+      throw new Error(error.message);
     }
-    return info;
+
+    console.log("Email sent:", data.id);
+    return data;
   } catch (err) {
     console.error("FULL EMAIL ERROR:", err);
     throw err;
