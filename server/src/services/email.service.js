@@ -14,11 +14,22 @@ if (!EMAIL_USER || !EMAIL_PASS) {
 
 // Create transporter for SMTP with Gmail using user & app password
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  requireTLS: true,
   auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS,
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
+});
+// Verify connection configuration and log result
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("Email server connection failed:", error);
+  } else {
+    console.log("Email server is ready to send messages");
+  }
 });
 
 /**
