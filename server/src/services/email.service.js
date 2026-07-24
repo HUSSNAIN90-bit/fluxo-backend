@@ -3,9 +3,6 @@ import nodemailer from "nodemailer";
 const {
   EMAIL_USER,
   EMAIL_PASS,
-  CLIENT_ID,
-  CLIENT_SECRET,
-  REFRESH_TOKEN,
 } = process.env;
 
 // Simple mandatory check for credentials
@@ -48,13 +45,8 @@ const sendEmail = async ({ to, subject, text, html }) => {
     }
     return info;
   } catch (err) {
-    console.error(
-      "Error sending email: %s\nCheck Gmail credentials, OAuth2 refresh token, or app password.",
-      err.message
-    );
-    throw new Error(
-      `Error sending email: ${err.message}. Check Gmail credentials, OAuth2 refresh token, or app password.`
-    );
+    console.error("FULL EMAIL ERROR:", err);
+    throw err;
   }
 };
 

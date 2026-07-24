@@ -29,15 +29,8 @@ const assignOtpToUser = async (user, purpose) => {
       html,
     });
   } catch (err) {
-    // Log a detailed error message and rethrow for observability.
-    console.error(
-      "Error sending OTP email: %s\nPlease check your EMAIL_USER, EMAIL_PASS and mail server/service connectivity (Gmail credentials, OAuth2 refresh token, or app password).",
-      err.message
-    );
-    // Rethrow with a more actionable message for the codebase
-    throw new Error(
-      `Failed to send OTP email: ${err.message}. Please check your email service credentials and connectivity.`
-    );
+    console.error("FULL EMAIL ERROR:", err);
+    throw err;
   }
 };
 
