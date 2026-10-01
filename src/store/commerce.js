@@ -161,7 +161,8 @@ export async function queryProducts(query, { includeHidden = false } = {}) {
     const ids = String(query.ids)
       .split(",")
       .map((s) => s.trim())
-      .filter(Boolean);
+      .filter((s) => /^[a-f0-9]{24}$/i.test(s));
+    if (!ids.length) return { products: [], total: 0, page, limit };
     filter._id = { $in: ids };
   }
   if (query.q) {

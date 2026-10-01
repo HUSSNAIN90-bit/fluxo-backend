@@ -430,8 +430,9 @@ admin.get("/stats", async (_req, res) => {
       cancelledOrders: 0,
     };
     delete totals._id;
-    const categories = categorySales.filter((c) => c._id).length
-      ? categorySales.filter((c) => c._id).map((c) => ({ name: c._id, count: c.total }))
+    const sales = categorySales.filter((c) => c._id);
+    const categories = sales.length
+      ? sales.map((c) => ({ name: c._id, revenue: c.total }))
       : Object.entries(
           active.reduce((map, p) => {
             map[p.category] = (map[p.category] || 0) + 1;
