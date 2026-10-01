@@ -2,10 +2,50 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express from "express";
+import path from "node:path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import storeRouter, { stripeWebhook } from "./store/router.js";
+import { isLive } from "./store/env.js";
 
 const app = express();
+
+app.post(
+  "/api/store/webhooks/stripe",
+  express.raw({ type: "application/json" }),
+  stripeWebhook,
+);
+
+const allowedOrigins = new Set(
+  [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://fluxo-teal-eta.vercel.app",
+    process.env.CLIENT_URL,
+  ].filter(Boolean),
+);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const local = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      if (allowedOrigins.has(origin) || (!isLive() && local)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: true,
+  }),
+);
+
+app.use(
+  cookieParser(
+    process.env.COOKIE_SECRET ||
+      process.env.JWT_SECRET ||
+      "fluxo_default_cookie_secret",
+  ),
+);
 
 const sanitizeString = (value) => {
   if (typeof value !== "string") return value;
@@ -42,44 +82,14 @@ const sanitizeRequest = (req, res, next) => {
 
 app.use(
   express.json({
-    limit: "10kb",
+    limit: "200kb",
   }),
-); // payload limit
+);
+
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/api/store", storeRouter);
 
 app.use(sanitizeRequest);
-
-// Cookie parser requires secret string as first parameter
-app.use(
-  cookieParser(
-    process.env.COOKIE_SECRET ||
-      process.env.JWT_SECRET ||
-      "fluxo_default_cookie_secret",
-  ),
-);
-
-// CORS configuration supporting localhost 3000, 3001 and deployed Vercel client
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://fluxo-teal-eta.vercel.app",
-];
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Always allow requests from allowedOrigins, or any origin in non-production
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        process.env.NODE_ENV !== "production"
-      ) {
-        callback(null, true);
-      } else {
-        callback(null, process.env.CLIENT_URL);
-      }
-    },
-    credentials: true,
-  }),
-);
 
 /**
  * Routes
@@ -104,9 +114,9 @@ app.use("/api/reviews", reviewRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);
-
-  res.status(500).json({
-    message: err.message || "Internal Server Error",
+  const status = err.status || 500;
+  res.status(status).json({
+    message: status >= 500 ? "Internal Server Error" : err.message,
   });
 });
 
