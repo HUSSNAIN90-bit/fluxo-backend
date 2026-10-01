@@ -59,10 +59,8 @@ app.use(
 
 // CORS configuration supporting localhost 3000, 3001 and deployed Vercel client
 const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://localhost:5000",
-  "https://fluxo-web-woad.vercel.app",
+  "http://localhost:5173",
+  "https://fluxo-teal-eta.vercel.app",
 ];
 
 app.use(

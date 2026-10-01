@@ -4,6 +4,15 @@ import cloudinary from "../config/cloudinary.js";
 import { uploadToCloudinary } from "../services/cloudinary.service.js";
 import { validateFileContent } from "../utils/fileValidation.js";
 
+// Util: Return if product is "new" (e.g. within last 7 days, change as needed)
+function isProductNew(product) {
+  if (!product.createdAt) return false;
+  const now = new Date();
+  const daysNew = 7;
+  const productDate = new Date(product.createdAt);
+  return (now - productDate) / (1000 * 60 * 60 * 24) <= daysNew;
+}
+
 /**
  * Create Product Controller
  *
@@ -15,7 +24,6 @@ import { validateFileContent } from "../utils/fileValidation.js";
  *   price: number,
  *   description: string
  * }
- *
  */
 const createProduct = async (req, res, next) => {
   try {
@@ -97,6 +105,7 @@ const createProduct = async (req, res, next) => {
  *
  * Entry Point: GET /products/get
  *
+ * Now includes isOnSale, discount (amount), and isNew for each product.
  */
 const getAllProducts = async (req, res, next) => {
   try {
@@ -116,30 +125,37 @@ const getAllProducts = async (req, res, next) => {
     // Fetch total count for reference
     const total = await productModel.countDocuments();
 
-    // Fetch paginated products
+    // Fetch paginated products with createdAt field
     const products = await productModel
       .find({})
-      .select("name images variants")
+      .select("name images variants createdAt")
       .skip(skip)
       .limit(limit);
 
     const formatted = products.map((product) => {
       const variant = product.variants[0];
-
       const promo = promotions.find((p) => p.products.includes(product._id));
 
       let finalPrice = variant?.price ?? 0;
       let isOnSale = false;
+      let discount = 0;
+      let discountType = null;
 
       if (promo && variant) {
         isOnSale = true;
-
+        discountType = promo.type;
         if (promo.type === "percentage") {
+          discount = promo.value;
           finalPrice = variant.price - (variant.price * promo.value) / 100;
         } else {
+          // flat discount
+          discount = promo.value;
           finalPrice = variant.price - promo.value;
         }
       }
+
+      // New logic: is the product "new" (within last X days)?
+      const isNew = isProductNew(product);
 
       return {
         _id: product._id,
@@ -148,12 +164,19 @@ const getAllProducts = async (req, res, next) => {
         originalPrice: variant?.price ?? 0,
         finalPrice: Math.max(finalPrice, 0),
         isOnSale,
+        discount,
+        discountType,
+        isNew,
         variants: product.variants,
       };
     });
 
-    // Sort so on-sale products come first
-    formatted.sort((a, b) => b.isOnSale - a.isOnSale);
+    // Sort so on-sale products come first, then new products
+    formatted.sort((a, b) => {
+      if (b.isOnSale !== a.isOnSale) return b.isOnSale - a.isOnSale;
+      if (b.isNew !== a.isNew) return b.isNew - a.isNew;
+      return 0;
+    });
 
     return res.json({
       success: true,
@@ -172,6 +195,7 @@ const getAllProducts = async (req, res, next) => {
  * get Product By ID Route
  *
  * Entry Point: GET /products/get/:id
+ * Now includes isOnSale, discount, discountType, and isNew
  */
 const getProductById = async (req, res, next) => {
   const productId = req.params.id;
@@ -183,7 +207,50 @@ const getProductById = async (req, res, next) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    return res.json({ success: true, data: product });
+    // Find active promotion for this product
+    const now = new Date();
+    const promotions = await promotionModel.find({
+      isActive: true,
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+      products: product._id,
+    });
+
+    let isOnSale = false;
+    let discount = 0;
+    let discountType = null;
+    let finalPrice = 0;
+
+    const variant = product.variants[0];
+    if (promotions.length > 0 && variant) {
+      isOnSale = true;
+      const promo = promotions[0];
+      discountType = promo.type;
+      if (promo.type === "percentage") {
+        discount = promo.value;
+        finalPrice = variant.price - (variant.price * promo.value) / 100;
+      } else {
+        discount = promo.value;
+        finalPrice = variant.price - promo.value;
+      }
+    } else {
+      finalPrice = variant?.price ?? 0;
+    }
+
+    const isNew = isProductNew(product);
+
+    return res.json({
+      success: true,
+      data: {
+        ...product.toObject(),
+        isOnSale,
+        discount,
+        discountType,
+        isNew,
+        finalPrice: Math.max(finalPrice, 0),
+        originalPrice: variant?.price ?? 0,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -193,6 +260,7 @@ const getProductById = async (req, res, next) => {
  * Filter Products
  *
  * Enter Point:  GET /api/products/:filter
+ * Now also adds isOnSale, discount, discountType, and isNew
  */
 const filterProducts = async (req, res, next) => {
   try {
@@ -262,10 +330,10 @@ const filterProducts = async (req, res, next) => {
     // Merge variant filters into query
     Object.assign(query, variantFilters);
 
-    // Infinite scrolling: support 'page' and 'limit' as usual,
-    // return hasMore to indicate if more products are available on next scroll
-    // 'page' is 1-based, frontend should request next page on scroll.
-    const page = parseInt(req.query.page, 10) || 1;
+    // === Infinite Scrolling Implementation ===
+
+    // Parse page and limit, with defaults
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
     const skip = (page - 1) * limit;
 
@@ -275,25 +343,85 @@ const filterProducts = async (req, res, next) => {
       sort = { [req.query.sortBy]: req.query.sortOrder === "asc" ? 1 : -1 };
     }
 
-    // Count total (for infinite scrolling)
+    // Get total matching products
     const total = await productModel.countDocuments(query);
+
+    // Fetch products with skip and limit for infinite scroll
     const products = await productModel
       .find(query)
       .sort(sort)
       .skip(skip)
       .limit(limit)
+      .select("name images variants createdAt")
       .exec();
 
-    // Infinite scroll relevant metadata
+    // Find promotions for all these products
+    const ids = products.map(p => p._id);
+    const now = new Date();
+    const promotions = await promotionModel.find({
+      isActive: true,
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+      products: { $in: ids }
+    });
+
+    // Helper to find active promotion for given product
+    const getPromo = (productId) => promotions.find(p => p.products.includes(productId));
+
+    const formatted = products.map(product => {
+      const variant = product.variants[0];
+      const promo = getPromo(product._id);
+
+      let isOnSale = false;
+      let discount = 0;
+      let discountType = null;
+      let finalPrice = variant?.price ?? 0;
+
+      if (promo && variant) {
+        isOnSale = true;
+        discountType = promo.type;
+        if (promo.type === "percentage") {
+          discount = promo.value;
+          finalPrice = variant.price - (variant.price * promo.value) / 100;
+        } else {
+          discount = promo.value;
+          finalPrice = variant.price - promo.value;
+        }
+      }
+
+      const isNew = isProductNew(product);
+
+      return {
+        _id: product._id,
+        name: product.name,
+        image: product.images?.[0] || product.variants?.[0]?.images?.[0],
+        originalPrice: variant?.price ?? 0,
+        finalPrice: Math.max(finalPrice, 0),
+        isOnSale,
+        discount,
+        discountType,
+        isNew,
+        variants: product.variants,
+      };
+    });
+
+    // Sort so on-sale products come first, then new ones
+    formatted.sort((a, b) => {
+      if (b.isOnSale !== a.isOnSale) return b.isOnSale - a.isOnSale;
+      if (b.isNew !== a.isNew) return b.isNew - a.isNew;
+      return 0;
+    });
+
+    // Determine if there are more products after this batch
     const hasMore = skip + products.length < total;
 
     return res.json({
       success: true,
-      data: products,
+      data: formatted,
       page,
       limit,
       total,
-      hasMore, // true if more products are available
+      hasMore, // true if more products are available for infinite scroll
     });
   } catch (err) {
     next(err);
@@ -304,6 +432,7 @@ const filterProducts = async (req, res, next) => {
  * Search Products
  *
  * Entry Point: /api/products/:search
+ * Now includes isOnSale, discount, discountType, and isNew for each result.
  */
 const searchProducts = async (req, res, next) => {
   try {
@@ -329,20 +458,77 @@ const searchProducts = async (req, res, next) => {
     // Count matching products for hasMore logic
     const total = await productModel.countDocuments(query);
 
-    // Fetch paginated results
+    // Fetch paginated results with needed fields (including createdAt)
     const products = await productModel
       .find(query)
       .skip(skip)
       .limit(limit)
+      .select("name images variants createdAt")
       .sort({ createdAt: -1 })
       .exec();
+
+    // Find promotions for these products
+    const ids = products.map(p => p._id);
+    const now = new Date();
+    const promotions = await promotionModel.find({
+      isActive: true,
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+      products: { $in: ids }
+    });
+    const getPromo = (productId) => promotions.find(p => p.products.includes(productId));
+
+    // Format results for response
+    const result = products.map(product => {
+      const variant = product.variants[0];
+      const promo = getPromo(product._id);
+
+      let isOnSale = false;
+      let discount = 0;
+      let discountType = null;
+      let finalPrice = variant?.price ?? 0;
+
+      if (promo && variant) {
+        isOnSale = true;
+        discountType = promo.type;
+        if (promo.type === "percentage") {
+          discount = promo.value;
+          finalPrice = variant.price - (variant.price * promo.value) / 100;
+        } else {
+          discount = promo.value;
+          finalPrice = variant.price - promo.value;
+        }
+      }
+
+      const isNew = isProductNew(product);
+
+      return {
+        _id: product._id,
+        name: product.name,
+        image: product.images?.[0] || product.variants?.[0]?.images?.[0],
+        originalPrice: variant?.price ?? 0,
+        finalPrice: Math.max(finalPrice, 0),
+        isOnSale,
+        discount,
+        discountType,
+        isNew,
+        variants: product.variants,
+      };
+    });
 
     // Indicate if more products are available
     const hasMore = skip + products.length < total;
 
+    // Optionally sort by isOnSale/new
+    result.sort((a, b) => {
+      if (b.isOnSale !== a.isOnSale) return b.isOnSale - a.isOnSale;
+      if (b.isNew !== a.isNew) return b.isNew - a.isNew;
+      return 0;
+    });
+
     return res.json({
       success: true,
-      data: products,
+      data: result,
       page,
       limit,
       total,
