@@ -1,14 +1,16 @@
 import { Resend } from "resend";
 
-const { RESEND_API_KEY } = process.env;
+let resend;
 
-if (!RESEND_API_KEY) {
-  throw new Error(
-    "Missing RESEND_API_KEY in environment variables. Please configure your Resend API key.",
-  );
+function client() {
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error(
+      "Missing RESEND_API_KEY in environment variables. Please configure your Resend API key.",
+    );
+  }
+  if (!resend) resend = new Resend(process.env.RESEND_API_KEY);
+  return resend;
 }
-
-const resend = new Resend(RESEND_API_KEY);
 
 /**
  * Sends an email using Resend API.
@@ -22,7 +24,7 @@ const sendEmail = async ({ to, subject, text, html }) => {
   try {
     // Resend expects array or comma-separated string for recipients
     const recipients = Array.isArray(to) ? to : [to];
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await client().emails.send({
       from: "Fluxo <onboarding@resend.dev>",
       to: recipients,
       subject,

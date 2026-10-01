@@ -50,7 +50,29 @@ const userSchema = new mongoose.Schema({
     enum: ["signup", "login"],
     select: false,
   },
-});
+  role: {
+    type: String,
+    enum: ["customer", "admin"],
+    default: "customer",
+    index: true,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+  emailVerifyTokenHash: {
+    type: String,
+    select: false,
+  },
+  resetTokenHash: {
+    type: String,
+    select: false,
+  },
+  resetExpires: {
+    type: Date,
+    select: false,
+  },
+}, { timestamps: true });
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) {
     return;
